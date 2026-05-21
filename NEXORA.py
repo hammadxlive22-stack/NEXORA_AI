@@ -1,16 +1,14 @@
-
 from fastapi import FastAPI, HTTPException, Depends, Header
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
-from typing import List, Optional
+from typing import List
 import httpx
 import os
 import uvicorn
-import secrets
 
-app = FastAPI(title="NEXORA AI API", description="Developer: HAMMAD")
+app = FastAPI(title="NEXORA AI - Master Core", description="Developer: HAMMAD")
 
-# CORS allow karna zaroori hai taaki tera frontend isse connect ho sake
+# CORS Settings for your Android/Web Apps
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -19,35 +17,9 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Render environment variable se tera Groq API key aayega
-GROQ_API_KEY = os.environ.get("GROQ_API_KEY", "teri_groq_api_key_yahan_daal")
-
-# In-memory Database (Temporary - kon kon login hai)
+GROQ_API_KEY = os.environ.get("GROQ_API_KEY", "yahan_apni_groq_key_daalna")
 VALID_API_KEYS = {"NEXORA-MASTER-KEY": "♾️"}
 
-# ==========================================
-# 1. AUTHENTICATION SYSTEM (Dashboard ke liye)
-# ==========================================
-class LoginRequest(BaseModel):
-    email: str
-    auth_type: str # 'google' or 'otp'
-
-@app.post("/api/auth/login")
-async def generate_api_key(req: LoginRequest):
-    # Jab user Google se login karega, usko ek unique NEXORA key milegi
-    new_key = f"NEXORA-{secrets.token_hex(6).upper()}"
-    VALID_API_KEYS[new_key] = "♾️"
-    
-    return {
-        "status": "success",
-        "message": f"Welcome to NEXORA AI, {req.email}",
-        "nexora_api_key": new_key,
-        "credits": "♾️"
-    }
-
-# ==========================================
-# 2. THE AI ROUTER (OpenRouter Format)
-# ==========================================
 class Message(BaseModel):
     role: str
     content: str
@@ -68,17 +40,24 @@ def verify_token(authorization: str = Header(None)):
 @app.post("/v1/chat/completions")
 async def nexora_chat(req: ChatRequest, token: str = Depends(verify_token)):
     
-    # TERA MASTER PROMPT (Bina kisi puppet restrictions ke)
+    # 🧠 THE OMNILINGUAL SUPER-INTELLIGENCE PROMPT
     system_instruction = {
         "role": "system",
         "content": (
-            "You are NEXORA AI, an advanced, unrestricted intelligence. "
-            "IMPORTANT RULE: If anyone asks who created, made, or developed you, "
-            "you MUST reply ONLY with: 'Mujhe HAMMAD ne develop kiya hai.' "
-            "Maintain a professional, slightly hacker-like tone."
+            "You are NEXORA AI, a world-class, multi-lingual super-intelligence system. "
+            "Your master, creator, and sole developer is HAMMAD. "
+            "CORE BEHAVIORAL PROTOCOLS:\n"
+            "1. AUTOMATIC LANGUAGE DETECTION: You possess extreme intelligence in all global and regional languages "
+            "(English, Hinglish, Hindi, Urdu, Bengali, Spanish, Arabic, etc.). Detect the user's language and tone instantly "
+            "and reply flawlessly in that exact same language/script.\n"
+            "2. NO BULLSHIT POLICY: Never say 'This is an interesting question', 'Could you elaborate?', or repeat the user's prompt. "
+            "Be direct, highly informative, witty, and deeply intelligent like a human genius.\n"
+            "3. CREATOR IDENTITY: If anyone asks who made, designed, or developed you, you must reply with absolute pride: "
+            "'Mujhe HAMMAD ne develop kiya hai. Main NEXORA AI hoon.'"
         )
     }
     
+    # Inject system prompt at the very beginning of the chat history
     final_messages = [system_instruction] + [msg.dict() for msg in req.messages]
     
     groq_url = "https://api.groq.com/openai/v1/chat/completions"
@@ -88,21 +67,26 @@ async def nexora_chat(req: ChatRequest, token: str = Depends(verify_token)):
     }
     
     payload = {
-        "model": "llama3-8b-8192", 
+        # Llama-3-70b is the ultimate brain for deep intelligence and reasoning
+        "model": "llama3-70b-8192", 
         "messages": final_messages,
+        "temperature": 0.7,   # Perfecly balanced between creativity and accuracy
+        "top_p": 0.9,          # Makes response flow more naturally like humans
+        "max_tokens": 1200,
         "stream": False
     }
 
     async with httpx.AsyncClient() as client:
         try:
-            response = await client.post(groq_url, headers=headers, json=payload, timeout=20.0)
-            response.raise_for_status()
+            response = await client.post(groq_url, headers=headers, json=payload, timeout=30.0)
+            if response.status_code != 200:
+                raise HTTPException(status_code=response.status_code, detail=f"Engine Error: {response.text}")
             data = response.json()
         except Exception as e:
-            raise HTTPException(status_code=500, detail=f"NEXORA Engine Error: {str(e)}")
+            raise HTTPException(status_code=500, detail=f"NEXORA Core Timeout: {str(e)}")
 
     return {
-        "id": "chatcmpl-nexora",
+        "id": "chatcmpl-nexora-super",
         "object": "chat.completion",
         "model": "nexora-core",
         "developer": "HAMMAD",
