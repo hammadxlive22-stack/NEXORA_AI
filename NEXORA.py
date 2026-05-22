@@ -15,7 +15,7 @@ SessionLocal = sessionmaker(bind=engine)
 Base = declarative_base()
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
-# KEYS (DO NOT SHARE THESE!)
+#  AB NHI HAI ☠️ ✅ 
 import os
 # API KEYS (Environment variable se load karo)
 genai.configure(api_key=os.getenv("GEMINI_API_KEY"))
