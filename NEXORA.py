@@ -6,15 +6,10 @@ import httpx
 import os
 import uvicorn
 import secrets
-import smtplib
-from email.mime.text import MIMEText
-from email.mime.multipart import MIMEMultipart
 
 app = FastAPI(title="NEXORA AI - God Core", description="Developer: HAMMAD")
 
-# ==========================================
 # 🌐 GLOBAL CORS CONTROL PIPELINE
-# ==========================================
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -26,17 +21,15 @@ app.add_middleware(
 # ==========================================
 # ⚙️ CONFIGURATION SYSTEM ENVIRONMENT
 # ==========================================
-# Tip: Render Dashboard par Environment Variables me ye variables set kar lena best rahega
 GROQ_API_KEY = os.environ.get("GROQ_API_KEY", "gsk_xxxxYOUR_ACTUAL_GROQ_KEYxxxx")
-SENDER_EMAIL = os.environ.get("SENDER_EMAIL", "hammad126069@gmail.com") 
-SENDER_PASSWORD = os.environ.get("SENDER_PASSWORD", "xxxx xxxx xxxx xxxx") # 16-digit App Password here
+
+# ⚡ RESEND API CONFIGURATION (Bypasses Render SMTP Block)
+RESEND_API_KEY = os.environ.get("re_4zqdkWgS_MoEPQUGwkgenRWBL7AsM14PF", "YAHAN_APNI_RESEND_API_KEY_CHIPKAO")
+SENDER_EMAIL = "onboarding@resend.dev" # Free account ke liye yahi default rahega
 
 VALID_API_KEYS = {"NEXORA-MASTER-KEY": "♾️"}
 PENDING_OTPS = {}  
 
-# ==========================================
-# 📊 DATA STRUCT MODELS (PYDANTIC SCHEMA)
-# ==========================================
 class Message(BaseModel):
     role: str
     content: str
@@ -54,15 +47,16 @@ class VerifyRequest(BaseModel):
     otp: str
 
 # ==========================================
-# 🔒 SECURE MAIL DISTRIBUTION VECTOR (PORT 465)
+# 🚀 HTTP API MAIL MATRIX (NO MORE SMTP ERRORS)
 # ==========================================
-def send_real_email(receiver_email: str, otp_code: str):
-    msg = MIMEMultipart()
-    msg['From'] = f"NEXORA AI <{SENDER_EMAIL}>"
-    msg['To'] = receiver_email
-    msg['Subject'] = "🔒 NEXORA AI - System Verification Code"
-
-    body = f"""
+async def send_resend_email(receiver_email: str, otp_code: str):
+    url = "https://api.resend.com/emails"
+    headers = {
+        "Authorization": f"Bearer {RESEND_API_KEY}",
+        "Content-Type": "application/json"
+    }
+    
+    html_body = f"""
     <html>
     <body style="background-color: #07070c; color: #ffffff; font-family: sans-serif; padding: 30px; border: 1px solid rgba(255,255,255,0.1); border-radius: 16px;">
         <div style="text-align: center; margin-bottom: 20px;">
@@ -81,32 +75,38 @@ def send_real_email(receiver_email: str, otp_code: str):
     </body>
     </html>
     """
-    msg.attach(MIMEText(body, 'html'))
+    
+    payload = {
+        "from": f"NEXORA <{SENDER_EMAIL}>",
+        "to": receiver_email,
+        "subject": "🔒 NEXORA AI - System Verification Code",
+        "html": html_body
+    }
 
-    try:
-        # 🔥 CRITICAL OVERRIDE: Port 465 (SMTP_SSL) bypasses Render network block restrictions
-        server = smtplib.SMTP_SSL('smtp.gmail.com', 465)
-        server.login(SENDER_EMAIL, SENDER_PASSWORD)
-        server.sendmail(SENDER_EMAIL, receiver_email, msg.as_string())
-        server.quit()
-        return True
-    except Exception as e:
-        print(f"SMTP Critical Fault on Port 465: {str(e)}")
-        return False
+    async with httpx.AsyncClient() as client:
+        try:
+            response = await client.post(url, headers=headers, json=payload, timeout=15.0)
+            if response.status_code in [200, 201]:
+                return True
+            print(f"Resend API Error Output: {response.text}")
+            return False
+        except Exception as e:
+            print(f"HTTP Mail Loop Exception: {str(e)}")
+            return False
 
 # ==========================================
-# 🔑 SECURITY ENDPOINTS (OTP PIPELINES)
+# 🔑 SECURITY ENDPOINTS (UPDATED)
 # ==========================================
 @app.post("/api/auth/send-otp")
 async def request_otp(req: OTPRequest):
     email = req.email.strip().lower()
-    # Generates a secure 6-digit random number string
     otp_code = str(secrets.randbelow(900000) + 100000)
     PENDING_OTPS[email] = otp_code
     
-    mail_sent = send_real_email(email, otp_code)
+    # Triggering the async HTTP Mail delivery
+    mail_sent = await send_resend_email(email, otp_code)
     if not mail_sent:
-        raise HTTPException(status_code=500, detail="Failed to send OTP mail package. Check server network ports.")
+        raise HTTPException(status_code=500, detail="Failed to deliver token via HTTP Gateway. Check Resend API Key.")
     
     return {"status": "success", "message": f"OTP successfully streamed to {email}"}
 
@@ -121,29 +121,19 @@ async def verify_otp(req: VerifyRequest):
     else:
         raise HTTPException(status_code=400, detail="Invalid OTP validation signature.")
 
-# ==========================================
-# 🛡️ AUTHORIZATION GATEWAY MIDDLEWARE
-# ==========================================
 def verify_token(authorization: str = Header(None)):
     if not authorization or not authorization.startswith("Bearer "):
         raise HTTPException(status_code=401, detail="Unauthorized: API Access token missing")
     token = authorization.split("Bearer ")[1]
     if token not in VALID_API_KEYS:
-        raise HTTPException(status_code=401, detail="Unauthorized: Invalid NEXORA Core Validation Token")
+        raise HTTPException(status_code=401, detail="Unauthorized: Invalid NEXORA Core Key")
     return token
 
-# ==========================================
-# 🧠 AI PROCESSING GRID (GROQ DISPATCHER)
-# ==========================================
 @app.post("/v1/chat/completions")
 async def nexora_chat(req: ChatRequest, token: str = Depends(verify_token)):
     system_instruction = {
         "role": "system",
-        "content": (
-            "You are NEXORA AI, an absolute god-mode multi-lingual super-intelligence framework. "
-            "Your master, creator, and root developer is HAMMAD. "
-            "Provide instantly accurate, complete, functional answers."
-        )
+        "content": "You are NEXORA AI. Your creator is HAMMAD. Respond accurately."
     }
     final_messages = [system_instruction] + [msg.dict() for msg in req.messages]
     groq_url = "https://api.groq.com/openai/v1/chat/completions"
@@ -172,9 +162,6 @@ async def nexora_chat(req: ChatRequest, token: str = Depends(verify_token)):
         "credits_remaining": VALID_API_KEYS[token]
     }
 
-# ==========================================
-# 🚀 ENVIRONMENT ENTRY DISPATCH MATRIX
-# ==========================================
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 8000))
     uvicorn.run(app, host="0.0.0.0", port=port)
