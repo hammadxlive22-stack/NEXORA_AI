@@ -19,13 +19,13 @@ app.add_middleware(
 )
 
 # ==========================================
-# ⚙️ CONFIGURATION SYSTEM ENVIRONMENT
+# ⚙️ FIXED CONFIGURATION SYSTEM (DIRECT INTEGRATION)
 # ==========================================
 GROQ_API_KEY = os.environ.get("GROQ_API_KEY", "gsk_xxxxYOUR_ACTUAL_GROQ_KEYxxxx")
 
-# ⚡ RESEND API CONFIGURATION (Bypasses Render SMTP Block)
-RESEND_API_KEY = os.environ.get("re_4zqdkWgS_MoEPQUGwkgenRWBL7AsM14PF", "YAHAN_APNI_RESEND_API_KEY_CHIPKAO")
-SENDER_EMAIL = "onboarding@resend.dev" # Free account ke liye yahi default rahega
+# 🔥 FIXED: Key directly hardcoded without environment mismatch loops
+RESEND_API_KEY = "re_4zqdkWgS_MoEPQUGwkgenRWBL7AsM14PF"
+SENDER_EMAIL = "onboarding@resend.dev" # Free account ke liye yahi validation default rahega
 
 VALID_API_KEYS = {"NEXORA-MASTER-KEY": "♾️"}
 PENDING_OTPS = {}  
@@ -95,7 +95,7 @@ async def send_resend_email(receiver_email: str, otp_code: str):
             return False
 
 # ==========================================
-# 🔑 SECURITY ENDPOINTS (UPDATED)
+# 🔑 SECURITY ENDPOINTS 
 # ==========================================
 @app.post("/api/auth/send-otp")
 async def request_otp(req: OTPRequest):
@@ -103,10 +103,9 @@ async def request_otp(req: OTPRequest):
     otp_code = str(secrets.randbelow(900000) + 100000)
     PENDING_OTPS[email] = otp_code
     
-    # Triggering the async HTTP Mail delivery
     mail_sent = await send_resend_email(email, otp_code)
     if not mail_sent:
-        raise HTTPException(status_code=500, detail="Failed to deliver token via HTTP Gateway. Check Resend API Key.")
+        raise HTTPException(status_code=500, detail="Failed to deliver token via HTTP Gateway. Check Resend Dashboard Status.")
     
     return {"status": "success", "message": f"OTP successfully streamed to {email}"}
 
