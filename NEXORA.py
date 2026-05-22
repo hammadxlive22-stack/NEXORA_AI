@@ -1,74 +1,90 @@
-from fastapi import FastAPI, HTTPException, Header
+from fastapi import FastAPI, HTTPException, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
-from typing import List
-import uvicorn
-import secrets
-import smtplib
-from email.mime.text import MIMEText
-from email.mime.multipart import MIMEMultipart
+from sqlalchemy import create_engine, Column, Integer, String
+from sqlalchemy.ext.declarative import declarative_base
+from sqlalchemy.orm import sessionmaker
+from passlib.context import CryptContext
+import google.generativeai as genai
+import openai
 
-app = FastAPI(title="NEXORA AI - Master Core")
+# --- CONFIGURATION ---
+DATABASE_URL = "sqlite:///./users.db"
+engine = create_engine(DATABASE_URL, connect_args={"check_same_thread": False})
+SessionLocal = sessionmaker(bind=engine)
+Base = declarative_base()
+pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
+# KEYS (DO NOT SHARE THESE!)
+import os
+# API KEYS (Environment variable se load karo)
+genai.configure(api_key=os.getenv("GEMINI_API_KEY"))
+openai.api_key = os.getenv("OPENAI_API_KEY")
 
-# Hardcoded details (Directly from you)
-SENDER_EMAIL = "hammadlive22@gmail.com"
-SENDER_PASSWORD = "qaov rkrl pexm gsew"
+# --- DATABASE MODEL ---
+class User(Base):
+    __tablename__ = "users"
+    id = Column(Integer, primary_key=True, index=True)
+    email = Column(String, unique=True)
+    password = Column(String)
 
-VALID_API_KEYS = {"NEXORA-MASTER-KEY": "♾️"}
-PENDING_OTPS = {}
+Base.metadata.create_all(bind=engine)
+
+app = FastAPI()
+app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
+
+# --- SCHEMAS ---
+class AuthRequest(BaseModel):
+    email: str
+    password: str
 
 class ChatRequest(BaseModel):
-    messages: List[dict]
+    messages: list
+    model_choice: str = "gemini" 
 
-class OTPRequest(BaseModel):
-    email: str
+# --- ROUTES ---
+@app.post("/auth/register")
+def register(req: AuthRequest):
+    db = SessionLocal()
+    if db.query(User).filter(User.email == req.email).first():
+        db.close()
+        raise HTTPException(status_code=400, detail="Email already registered")
+    hashed = pwd_context.hash(req.password)
+    db.add(User(email=req.email, password=hashed))
+    db.commit()
+    db.close()
+    return {"status": "Success", "message": "Registered"}
 
-class VerifyRequest(BaseModel):
-    email: str
-    otp: str
-
-def send_mail(to_email: str, code: str):
-    try:
-        msg = MIMEMultipart()
-        msg['Subject'] = "🔒 NEXORA Verification"
-        msg.attach(MIMEText(f"Your code: {code}", 'plain'))
-        server = smtplib.SMTP_SSL('smtp.gmail.com', 465)
-        server.login(SENDER_EMAIL, SENDER_PASSWORD)
-        server.sendmail(SENDER_EMAIL, to_email, msg.as_string())
-        server.quit()
-        return True
-    except:
-        return False
-
-@app.post("/api/auth/send-otp")
-async def send_otp(req: OTPRequest):
-    code = str(secrets.randbelow(900000) + 100000)
-    PENDING_OTPS[req.email.strip().lower()] = code
-    if send_mail(req.email.strip().lower(), code):
-        return {"status": "success"}
-    raise HTTPException(status_code=500, detail="Mail failed")
-
-@app.post("/api/auth/verify-otp")
-async def verify(req: VerifyRequest):
-    if PENDING_OTPS.get(req.email.strip().lower()) == req.otp:
-        key = f"NEXORA-{secrets.token_hex(6).upper()}"
-        VALID_API_KEYS[key] = "♾️"
-        return {"status": "success", "nexora_api_key": key}
-    raise HTTPException(status_code=400, detail="Invalid OTP")
+@app.post("/auth/login")
+def login(req: AuthRequest):
+    db = SessionLocal()
+    user = db.query(User).filter(User.email == req.email).first()
+    db.close()
+    if not user or not pwd_context.verify(req.password, user.password):
+        raise HTTPException(status_code=401, detail="Invalid credentials")
+    return {"status": "Success", "message": "User authenticated"}
 
 @app.post("/v1/chat/completions")
-async def chat(req: ChatRequest, auth: str = Header(None)):
-    if not auth or auth.split(" ")[1] not in VALID_API_KEYS:
-        raise HTTPException(status_code=401, detail="Unauthorized")
-    return {"choices": [{"message": {"content": "⚙️ System Online. NEXORA engine functional."}}]}
+async def chat(req: ChatRequest):
+    user_msg = req.messages[-1]['content']
+    try:
+        if req.model_choice == "gpt":
+            # GPT API Call
+            response = openai.ChatCompletion.create(
+                model="gpt-3.5-turbo", 
+                messages=[{"role": "user", "content": user_msg}]
+            )
+            reply = response.choices[0].message.content
+        else:
+            # Gemini API Call
+            model = genai.GenerativeModel('gemini-1.5-flash')
+            response = model.generate_content(user_msg)
+            reply = response.text
+            
+        return {"choices": [{"message": {"role": "assistant", "content": reply}}]}
+    except Exception as e:
+        return {"choices": [{"message": {"role": "assistant", "content": f"Engine Alert: {str(e)}"}}]}
 
 if __name__ == "__main__":
+    import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=8000)
