@@ -1,5 +1,7 @@
 fastapi
 uvicorn
+sqlalchemy
+passlib[bcrypt]
+google-generativeai
+openai
 pydantic
-httpx
-python-multipart
