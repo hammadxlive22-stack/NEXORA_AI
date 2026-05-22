@@ -26,9 +26,9 @@ app.add_middleware(
 # ==========================================
 # ⚙️ GMAIL CONFIGURATION (FOR REAL USERS)
 # ==========================================
-# ⚠️ YAHAN APNI DETAILS BILKUL SAHI DAALNA
-SENDER_EMAIL = "hammadlive22@gmail.com"  # Tera Gmail account
-SENDER_PASSWORD = "abcd efgh ijkl mnop"  # Google se nikala hua 16-digit App Password (bina space ke bhi daal sakte ho)
+# ⚠️ Yahan apna actual Gmail aur 16-digit App Password enter karna bina kisi mistake ke
+SENDER_EMAIL = "hammadlive22@gmail.com"  
+SENDER_PASSWORD = "yrms wmfw vrja zhpq"  
 
 VALID_API_KEYS = {"NEXORA-MASTER-KEY": "♾️"}
 PENDING_OTPS = {}  
@@ -80,7 +80,6 @@ def send_global_email(receiver_email: str, otp_code: str):
     msg.attach(MIMEText(body, 'html'))
 
     try:
-        # Port 465 (SSL) Render standard firewalls ko bypass karta hai aur public delivery deta hai
         server = smtplib.SMTP_SSL('smtp.gmail.com', 465)
         server.login(SENDER_EMAIL, SENDER_PASSWORD)
         server.sendmail(SENDER_EMAIL, receiver_email, msg.as_string())
@@ -106,6 +105,68 @@ def nexora_native_brain(user_query: str) -> str:
     elif "clear" in query or "purge" in query:
         return "🧹 System logs wiped clean. Terminal refreshed."
     
+    fallbacks = [
+        "⚠️ Matrix Query analyzed. Command accepted into internal database pipeline.",
+        "⚡ Request processed via NEXORA native framework. Processing core logic string...",
+        "⚙️ Request validated. Standalone core module executing operational block successfully.",
+        "🔮 Binary stream established. NEXORA core engine is executing your script instructions perfectly."
+    ]
+    return random.choice(fallbacks)
+
+# ==========================================
+# 🔑 SECURITY ENDPOINTS
+# ==========================================
+@app.post("/api/auth/send-otp")
+async def request_otp(req: OTPRequest):
+    email = req.email.strip().lower()
+    otp_code = str(secrets.randbelow(900000) + 100000)
+    PENDING_OTPS[email] = otp_code
+    
+    mail_sent = send_global_email(email, otp_code)
+    if not mail_sent:
+        raise HTTPException(status_code=500, detail="Failed to deliver mail package. Check App Password configuration.")
+    
+    # 🔥 FIXED INDENTATION: Sahi space ke sath function ke andar align kar diya hai
+    return {"status": "success", "message": f"OTP successfully streamed to {email}"}
+
+@app.post("/api/auth/verify-otp")
+async def verify_otp(req: VerifyRequest):
+    email = req.email.strip().lower()
+    if email in PENDING_OTPS and PENDING_OTPS[email] == req.otp:
+        new_key = f"NEXORA-{secrets.token_hex(6).upper()}"
+        VALID_API_KEYS[new_key] = "♾️"
+        del PENDING_OTPS[email] 
+        return {"status": "success", "nexora_api_key": new_key, "credits": "♾️"}
+    raise HTTPException(status_code=400, detail="Invalid OTP validation signature.")
+
+def verify_token(authorization: str = Header(None)):
+    if not authorization or not authorization.startswith("Bearer "):
+        raise HTTPException(status_code=401, detail="Unauthorized")
+    token = authorization.split("Bearer ")[1]
+    if token not in VALID_API_KEYS:
+        raise HTTPException(status_code=401, detail="Invalid Token")
+    return token
+
+# ==========================================
+# 🧠 DISPATCH CHAT
+# ==========================================
+@app.post("/v1/chat/completions")
+async def nexora_chat(req: ChatRequest, token: str = Depends(verify_token)):
+    user_message = req.messages[-1].content if req.messages else "hlo"
+    system_reply = nexora_native_brain(user_message)
+    
+    return {
+        "id": "chatcmpl-nexora-standalone",
+        "object": "chat.completion",
+        "choices": [
+            {"index": 0, "message": {"role": "assistant", "content": system_reply}, "finish_reason": "stop"}
+        ],
+        "credits_remaining": VALID_API_KEYS[token]
+    }
+
+if __name__ == "__main__":
+    port = int(os.environ.get("PORT", 8000))
+    uvicorn.run(app, host="0.0.0.0", port=port)
     fallbacks = [
         "⚠️ Matrix Query analyzed. Command accepted into internal database pipeline.",
         "⚡ Request processed via NEXORA native framework. Processing core logic string...",
