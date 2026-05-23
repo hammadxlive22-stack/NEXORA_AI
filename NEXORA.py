@@ -6,7 +6,8 @@ from sqlalchemy import create_engine, Column, Integer, String
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker
 from passlib.context import CryptContext
-from openai import OpenAI
+import aiohttp
+import asyncio
 import os
 
 # ============================================================
@@ -23,23 +24,9 @@ SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 Base = declarative_base()
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
-# 🔥 SIRF OPENAI - GEMINI HATAYA
-openai_client = OpenAI(api_key=os.getenv("OPENAI_API_KEY", "YOUR_OPENAI_KEY"))
-
-# ============================================================
-# DATABASE MODEL
-# ============================================================
-class User(Base):
-    __tablename__ = "users"
-    id = Column(Integer, primary_key=True, index=True)
-    email = Column(String, unique=True)
-    password = Column(String)
-
 Base.metadata.create_all(bind=engine)
-
 app = FastAPI()
 
-# CORS
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -47,17 +34,6 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
-
-# ============================================================
-# ROOT ENDPOINT
-# ============================================================
-@app.get("/")
-def root():
-    return {
-        "status": "active",
-        "message": "NEXORA AI API is running (GPT Only)",
-        "endpoints": ["/auth/register", "/auth/login", "/v1/chat/completions"]
-    }
 
 # ============================================================
 # SCHEMAS
@@ -68,10 +44,10 @@ class AuthRequest(BaseModel):
 
 class ChatRequest(BaseModel):
     messages: list
-    model_choice: str = "gpt"  # 🔥 Default GPT
+    model_choice: str = "gpt"
 
 # ============================================================
-# AUTH ROUTES
+# AUTH ROUTES (Same as before)
 # ============================================================
 @app.post("/auth/register")
 def register(req: AuthRequest):
@@ -98,27 +74,75 @@ def login(req: AuthRequest):
         db.close()
 
 # ============================================================
-# 🔥 CHAT ROUTE - SIRF GPT (GEMINI HATAYA)
+# 🔥 MULTI-API FALLBACK SYSTEM (FREE APIS)
 # ============================================================
-@app.post("/v1/chat/completions")
-async def chat(req: ChatRequest):
-    user_msg = req.messages[-1]['content']
+async def call_pollinations_api(prompt: str) -> str:
+    """Free API #1 - Pollinations (no key needed)"""
     try:
-        # 🔥 Sirf GPT - Gemini ka code hata diya
-        response = openai_client.chat.completions.create(
+        async with aiohttp.ClientSession() as session:
+            async with session.get(f"https://text.pollinations.ai/{prompt}", timeout=30) as resp:
+                if resp.status == 200:
+                    return await resp.text()
+    except:
+        pass
+    return None
+
+async def call_hercai_api(prompt: str) -> str:
+    """Free API #2 - Hercai (no key needed)"""
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.get(f"https://hercai.onrender.com/hercai?question={prompt}", timeout=30) as resp:
+                if resp.status == 200:
+                    data = await resp.json()
+                    if data and data.get("reply"):
+                        return data["reply"]
+    except:
+        pass
+    return None
+
+async def call_openai_api(prompt: str, api_key: str) -> str:
+    """OpenAI API (needs key)"""
+    if not api_key or api_key == "YOUR_OPENAI_KEY":
+        return None
+    try:
+        from openai import OpenAI
+        client = OpenAI(api_key=api_key)
+        response = client.chat.completions.create(
             model="gpt-3.5-turbo",
-            messages=[{"role": "user", "content": user_msg}],
+            messages=[{"role": "user", "content": prompt}],
             max_tokens=500,
             temperature=0.7
         )
-        reply = response.choices[0].message.content
-        return {"choices": [{"message": {"role": "assistant", "content": reply}}]}
-        
+        return response.choices[0].message.content
     except Exception as e:
-        return JSONResponse(
-            status_code=500,
-            content={"choices": [{"message": {"role": "assistant", "content": f"Engine Alert: {str(e)}"}}]}
-        )
+        print(f"OpenAI error: {e}")
+        return None
+
+@app.post("/v1/chat/completions")
+async def chat(req: ChatRequest):
+    user_msg = req.messages[-1]['content']
+    openai_key = os.getenv("OPENAI_API_KEY", "YOUR_OPENAI_KEY")
+    
+    # Try APIs in sequence
+    reply = None
+    
+    # 1. Try OpenAI first (if key available)
+    if openai_key and openai_key != "YOUR_OPENAI_KEY":
+        reply = await call_openai_api(user_msg, openai_key)
+    
+    # 2. Try Pollinations (free)
+    if not reply:
+        reply = await call_pollinations_api(user_msg)
+    
+    # 3. Try Hercai (free backup)
+    if not reply:
+        reply = await call_hercai_api(user_msg)
+    
+    # 4. Final fallback
+    if not reply:
+        reply = "I'm having trouble connecting right now. Please try again in a moment. 🙏"
+    
+    return {"choices": [{"message": {"role": "assistant", "content": reply}}]}
 
 if __name__ == "__main__":
     import uvicorn
