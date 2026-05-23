@@ -1,5 +1,6 @@
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 from sqlalchemy import create_engine, Column, Integer, String
 from sqlalchemy.ext.declarative import declarative_base
@@ -9,7 +10,9 @@ import google.generativeai as genai
 from openai import OpenAI
 import os
 
-# --- CONFIGURATION ---
+# ============================================================
+# CONFIGURATION
+# ============================================================
 DATABASE_URL = "sqlite:///./users.db"
 engine = create_engine(
     DATABASE_URL, 
@@ -21,11 +24,12 @@ SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 Base = declarative_base()
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
-# Environment se keys le raha hai (tu ne set kar rakhi hai)
-genai.configure(api_key=os.getenv("GEMINI_API_KEY"))
-openai_client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+genai.configure(api_key=os.getenv("GEMINI_API_KEY", "YOUR_GEMINI_KEY"))
+openai_client = OpenAI(api_key=os.getenv("OPENAI_API_KEY", "YOUR_OPENAI_KEY"))
 
-# --- DATABASE MODEL ---
+# ============================================================
+# DATABASE MODEL
+# ============================================================
 class User(Base):
     __tablename__ = "users"
     id = Column(Integer, primary_key=True, index=True)
@@ -35,18 +39,43 @@ class User(Base):
 Base.metadata.create_all(bind=engine)
 
 app = FastAPI()
-app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
 
-# --- SCHEMAS ---
+# ============================================================
+# 🔥 CORS FIX - FULLY OPEN (DEVELOPMENT)
+# ============================================================
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+# ============================================================
+# ROOT ENDPOINT
+# ============================================================
+@app.get("/")
+def root():
+    return {
+        "status": "active",
+        "message": "NEXORA AI API is running",
+        "endpoints": ["/auth/register", "/auth/login", "/v1/chat/completions"]
+    }
+
+# ============================================================
+# SCHEMAS
+# ============================================================
 class AuthRequest(BaseModel):
     email: str
     password: str
 
 class ChatRequest(BaseModel):
     messages: list
-    model_choice: str = "gemini" 
+    model_choice: str = "gemini"
 
-# --- ROUTES ---
+# ============================================================
+# AUTH ROUTES
+# ============================================================
 @app.post("/auth/register")
 def register(req: AuthRequest):
     db = SessionLocal()
@@ -71,6 +100,9 @@ def login(req: AuthRequest):
     finally:
         db.close()
 
+# ============================================================
+# CHAT ROUTE
+# ============================================================
 @app.post("/v1/chat/completions")
 async def chat(req: ChatRequest):
     user_msg = req.messages[-1]['content']
@@ -82,14 +114,16 @@ async def chat(req: ChatRequest):
             )
             reply = response.choices[0].message.content
         else:
-            # 🔥 FIX: Model name change kar diya
-            model = genai.GenerativeModel('gemini-1.5-pro')  # ← YAHAN CHANGE KIYA
+            model = genai.GenerativeModel('gemini-1.5-pro')
             response = model.generate_content(user_msg)
             reply = response.text
             
         return {"choices": [{"message": {"role": "assistant", "content": reply}}]}
     except Exception as e:
-        return {"choices": [{"message": {"role": "assistant", "content": f"Engine Alert: {str(e)}"}}]}
+        return JSONResponse(
+            status_code=500,
+            content={"choices": [{"message": {"role": "assistant", "content": f"Engine Alert: {str(e)}"}}]}
+        )
 
 if __name__ == "__main__":
     import uvicorn
