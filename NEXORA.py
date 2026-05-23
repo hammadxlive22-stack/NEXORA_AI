@@ -7,17 +7,21 @@ from sqlalchemy.orm import sessionmaker
 from passlib.context import CryptContext
 import google.generativeai as genai
 import openai
+import os
 
 # --- CONFIGURATION ---
 DATABASE_URL = "sqlite:///./users.db"
-engine = create_engine(DATABASE_URL, connect_args={"check_same_thread": False})
-SessionLocal = sessionmaker(bind=engine)
+# FIXED: Connection pooling settings added
+engine = create_engine(
+    DATABASE_URL, 
+    connect_args={"check_same_thread": False},
+    pool_size=10, 
+    max_overflow=20
+)
+SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 Base = declarative_base()
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
-#  AB NHI HAI ☠️ ✅ 
-import os
-# API KEYS (Environment variable se load karo)
 genai.configure(api_key=os.getenv("GEMINI_API_KEY"))
 openai.api_key = os.getenv("OPENAI_API_KEY")
 
@@ -46,37 +50,38 @@ class ChatRequest(BaseModel):
 @app.post("/auth/register")
 def register(req: AuthRequest):
     db = SessionLocal()
-    if db.query(User).filter(User.email == req.email).first():
+    try: # FIXED: Added try-finally for connection closing
+        if db.query(User).filter(User.email == req.email).first():
+            raise HTTPException(status_code=400, detail="Email already registered")
+        hashed = pwd_context.hash(req.password)
+        db.add(User(email=req.email, password=hashed))
+        db.commit()
+        return {"status": "Success", "message": "Registered"}
+    finally:
         db.close()
-        raise HTTPException(status_code=400, detail="Email already registered")
-    hashed = pwd_context.hash(req.password)
-    db.add(User(email=req.email, password=hashed))
-    db.commit()
-    db.close()
-    return {"status": "Success", "message": "Registered"}
 
 @app.post("/auth/login")
 def login(req: AuthRequest):
     db = SessionLocal()
-    user = db.query(User).filter(User.email == req.email).first()
-    db.close()
-    if not user or not pwd_context.verify(req.password, user.password):
-        raise HTTPException(status_code=401, detail="Invalid credentials")
-    return {"status": "Success", "message": "User authenticated"}
+    try: # FIXED: Added try-finally for connection closing
+        user = db.query(User).filter(User.email == req.email).first()
+        if not user or not pwd_context.verify(req.password, user.password):
+            raise HTTPException(status_code=401, detail="Invalid credentials")
+        return {"status": "Success", "message": "User authenticated"}
+    finally:
+        db.close()
 
 @app.post("/v1/chat/completions")
 async def chat(req: ChatRequest):
     user_msg = req.messages[-1]['content']
     try:
         if req.model_choice == "gpt":
-            # GPT API Call
             response = openai.ChatCompletion.create(
                 model="gpt-3.5-turbo", 
                 messages=[{"role": "user", "content": user_msg}]
             )
             reply = response.choices[0].message.content
         else:
-            # Gemini API Call
             model = genai.GenerativeModel('gemini-1.5-flash')
             response = model.generate_content(user_msg)
             reply = response.text
