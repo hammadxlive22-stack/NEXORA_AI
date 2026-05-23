@@ -6,7 +6,6 @@ from sqlalchemy import create_engine, Column, Integer, String
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker
 from passlib.context import CryptContext
-import google.generativeai as genai
 from openai import OpenAI
 import os
 
@@ -24,7 +23,7 @@ SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 Base = declarative_base()
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
-genai.configure(api_key=os.getenv("GEMINI_API_KEY", "YOUR_GEMINI_KEY"))
+# 🔥 SIRF OPENAI - GEMINI HATAYA
 openai_client = OpenAI(api_key=os.getenv("OPENAI_API_KEY", "YOUR_OPENAI_KEY"))
 
 # ============================================================
@@ -40,9 +39,7 @@ Base.metadata.create_all(bind=engine)
 
 app = FastAPI()
 
-# ============================================================
-# 🔥 CORS FIX - FULLY OPEN (DEVELOPMENT)
-# ============================================================
+# CORS
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -58,7 +55,7 @@ app.add_middleware(
 def root():
     return {
         "status": "active",
-        "message": "NEXORA AI API is running",
+        "message": "NEXORA AI API is running (GPT Only)",
         "endpoints": ["/auth/register", "/auth/login", "/v1/chat/completions"]
     }
 
@@ -71,7 +68,7 @@ class AuthRequest(BaseModel):
 
 class ChatRequest(BaseModel):
     messages: list
-    model_choice: str = "gemini"
+    model_choice: str = "gpt"  # 🔥 Default GPT
 
 # ============================================================
 # AUTH ROUTES
@@ -101,24 +98,22 @@ def login(req: AuthRequest):
         db.close()
 
 # ============================================================
-# CHAT ROUTE
+# 🔥 CHAT ROUTE - SIRF GPT (GEMINI HATAYA)
 # ============================================================
 @app.post("/v1/chat/completions")
 async def chat(req: ChatRequest):
     user_msg = req.messages[-1]['content']
     try:
-        if req.model_choice == "gpt":
-            response = openai_client.chat.completions.create(
-                model="gpt-3.5-turbo",
-                messages=[{"role": "user", "content": user_msg}]
-            )
-            reply = response.choices[0].message.content
-        else:
-            model = genai.GenerativeModel('gemini-1.5-flash')
-            response = model.generate_content(user_msg)
-            reply = response.text
-            
+        # 🔥 Sirf GPT - Gemini ka code hata diya
+        response = openai_client.chat.completions.create(
+            model="gpt-3.5-turbo",
+            messages=[{"role": "user", "content": user_msg}],
+            max_tokens=500,
+            temperature=0.7
+        )
+        reply = response.choices[0].message.content
         return {"choices": [{"message": {"role": "assistant", "content": reply}}]}
+        
     except Exception as e:
         return JSONResponse(
             status_code=500,
