@@ -1,4 +1,4 @@
-from fastapi import FastAPI, HTTPException, Depends
+from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from sqlalchemy import create_engine, Column, Integer, String
@@ -6,12 +6,11 @@ from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker
 from passlib.context import CryptContext
 import google.generativeai as genai
-import openai
+from openai import OpenAI
 import os
 
 # --- CONFIGURATION ---
 DATABASE_URL = "sqlite:///./users.db"
-# FIXED: Connection pooling settings added
 engine = create_engine(
     DATABASE_URL, 
     connect_args={"check_same_thread": False},
@@ -22,8 +21,9 @@ SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 Base = declarative_base()
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
+# Environment se keys le raha hai (tu ne set kar rakhi hai)
 genai.configure(api_key=os.getenv("GEMINI_API_KEY"))
-openai.api_key = os.getenv("OPENAI_API_KEY")
+openai_client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
 # --- DATABASE MODEL ---
 class User(Base):
@@ -50,7 +50,7 @@ class ChatRequest(BaseModel):
 @app.post("/auth/register")
 def register(req: AuthRequest):
     db = SessionLocal()
-    try: # FIXED: Added try-finally for connection closing
+    try:
         if db.query(User).filter(User.email == req.email).first():
             raise HTTPException(status_code=400, detail="Email already registered")
         hashed = pwd_context.hash(req.password)
@@ -63,7 +63,7 @@ def register(req: AuthRequest):
 @app.post("/auth/login")
 def login(req: AuthRequest):
     db = SessionLocal()
-    try: # FIXED: Added try-finally for connection closing
+    try:
         user = db.query(User).filter(User.email == req.email).first()
         if not user or not pwd_context.verify(req.password, user.password):
             raise HTTPException(status_code=401, detail="Invalid credentials")
@@ -76,13 +76,14 @@ async def chat(req: ChatRequest):
     user_msg = req.messages[-1]['content']
     try:
         if req.model_choice == "gpt":
-            response = openai.ChatCompletion.create(
-                model="gpt-3.5-turbo", 
+            response = openai_client.chat.completions.create(
+                model="gpt-3.5-turbo",
                 messages=[{"role": "user", "content": user_msg}]
             )
             reply = response.choices[0].message.content
         else:
-            model = genai.GenerativeModel('gemini-1.5-flash')
+            # 🔥 FIX: Model name change kar diya
+            model = genai.GenerativeModel('gemini-1.5-pro')  # ← YAHAN CHANGE KIYA
             response = model.generate_content(user_msg)
             reply = response.text
             
