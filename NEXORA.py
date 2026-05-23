@@ -114,7 +114,7 @@ async def chat(req: ChatRequest):
             )
             reply = response.choices[0].message.content
         else:
-            model = genai.GenerativeModel('gemini-1.5-pro')
+            model = genai.GenerativeModel('gemini-1.5-flash')
             response = model.generate_content(user_msg)
             reply = response.text
             
